@@ -19,7 +19,7 @@ let package = Package(
                     "-L\(wc)/build/ggml/src",
                     "-L\(wc)/build/ggml/src/ggml-metal",
                     "-L\(wc)/build/ggml/src/ggml-blas",
-                    "-lwhisper",
+                    "-lwhisper", "-lparakeet",
                     "-lggml", "-lggml-base", "-lggml-cpu",
                     "-lggml-metal", "-lggml-blas",
                     "-lc++",

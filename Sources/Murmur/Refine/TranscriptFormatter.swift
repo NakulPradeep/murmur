@@ -7,7 +7,7 @@ struct FormatterOptions {
     var spokenPunctuation = false
     var smartCapitalization = true
     var appendTrailingSpace = true
-    var customReplacements: [CustomReplacement] = []
+    var resolveSelfCorrections = true
 }
 
 /// Deterministic post-processing over the raw Whisper transcript.
@@ -19,6 +19,10 @@ struct TranscriptFormatter {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         text = stripArtifacts(text)
         if options.removeFillers { text = removeFillers(text) }
+        if options.resolveSelfCorrections {
+            text = resolveSelfCorrections(text)
+            text = collapseStutters(text)
+        }
         if options.spokenPunctuation { text = applySpokenPunctuation(text) }
         if options.spokenLineCommands { text = applyLineCommands(text) }
 
@@ -34,12 +38,6 @@ struct TranscriptFormatter {
             text = NumberEngine.smallNumeralsToWords(text)
         case .off:
             break
-        }
-
-        for r in options.customReplacements where !r.find.isEmpty {
-            let pattern = "(?i)\\b" + NSRegularExpression.escapedPattern(for: r.find) + "\\b"
-            text = text.replacingOccurrences(
-                of: pattern, with: r.replace, options: .regularExpression)
         }
 
         text = cleanupWhitespace(text)
@@ -72,6 +70,108 @@ struct TranscriptFormatter {
         text.replacingOccurrences(
             of: "(?i)(?:^|(?<=[\\s.,!?]))(?:um+|uh+|erm+|hmm+|mhm+|mm-hmm)\\b[,.]?\\s*",
             with: "", options: .regularExpression)
+    }
+
+    /// Marker phrases that retract what the speaker just said.
+    private static let correctionMarkers: [[String]] = [
+        ["no", "wait"], ["no", "sorry"], ["sorry", "i", "meant"], ["i", "meant"],
+        ["scratch", "that"], ["actually", "i", "meant"], ["i", "mean"],
+        ["make", "that"], ["rather", "i", "mean"],
+    ]
+
+    /// Spoken retractions: "ship it Friday, no wait, Monday" should keep only
+    /// the correction.
+    ///
+    /// The tricky part is deciding how much to delete. Deleting back to the
+    /// clause boundary eats the whole sentence ("Monday"), and deleting a fixed
+    /// number of words breaks on longer phrases. What works is the symmetry of
+    /// how people actually correct themselves: the replacement mirrors what it
+    /// replaces, so "Monday" retracts one word and "the red one" retracts
+    /// three. The count is capped, and never crosses a sentence boundary, so a
+    /// misfire costs a few words rather than a paragraph.
+    private func resolveSelfCorrections(_ text: String) -> String {
+        var tokens = Tokenizer.split(text)
+        let maxRetraction = 3
+
+        // Indices of word tokens, for walking words while ignoring separators.
+        func wordIndices(in tokens: [Tokenizer.Token]) -> [Int] {
+            tokens.indices.filter { tokens[$0].isWord }
+        }
+        func isSentenceBreak(_ token: Tokenizer.Token) -> Bool {
+            !token.isWord && token.text.contains(where: { ".!?\n".contains($0) })
+        }
+        func isClauseBreak(_ token: Tokenizer.Token) -> Bool {
+            !token.isWord && token.text.contains(where: { ".!?,;\n".contains($0) })
+        }
+
+        var changed = true
+        while changed {
+            changed = false
+            let words = wordIndices(in: tokens)
+
+            for (position, tokenIndex) in words.enumerated() {
+                guard let marker = Self.correctionMarkers.first(where: { marker in
+                    guard position + marker.count <= words.count else { return false }
+                    return zip(marker, words[position..<(position + marker.count)]).allSatisfy {
+                        expected, index in
+                        tokens[index].text.lowercased() == expected
+                    }
+                }) else { continue }
+
+                let markerEnd = position + marker.count - 1
+
+                // How many words follow the marker before the next clause
+                // break — that is the size of the replacement.
+                var following = 0
+                var cursor = markerEnd + 1
+                while cursor < words.count, following < maxRetraction {
+                    let between = (words[cursor - 1] + 1)..<words[cursor]
+                    if cursor > markerEnd + 1,
+                       tokens[between].contains(where: isClauseBreak) { break }
+                    following += 1
+                    cursor += 1
+                }
+                // Nothing after the marker means nothing was corrected.
+                guard following > 0 else { continue }
+
+                // Retract the same number of words before the marker, stopping
+                // at a sentence boundary.
+                var retractFrom = position
+                var retracted = 0
+                while retracted < following, retractFrom > 0 {
+                    let previous = retractFrom - 1
+                    let between = (words[previous] + 1)..<words[retractFrom]
+                    if tokens[between].contains(where: isSentenceBreak) { break }
+                    retractFrom = previous
+                    retracted += 1
+                }
+                guard retracted > 0 else { continue }
+
+                // Remove the retracted words, the marker, and the separators
+                // between them, leaving the correction in place.
+                let start = words[retractFrom]
+                let end = words[markerEnd]
+                var removeEnd = end + 1
+                while removeEnd < tokens.count, !tokens[removeEnd].isWord,
+                      !isSentenceBreak(tokens[removeEnd]) {
+                    removeEnd += 1
+                }
+                tokens.removeSubrange(start..<removeEnd)
+                changed = true
+                break
+            }
+        }
+        return tokens.map(\.text).joined()
+    }
+
+    /// Restarts and stammers: "the the report", "I I think", "we we should".
+    /// Only collapses immediate repeats of the same word, which are always
+    /// disfluencies in dictation — genuine doubles like "had had" are rare
+    /// enough, and reading worse, that removing them is the better default.
+    private func collapseStutters(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: "(?i)\\b(\\w+)(\\s+\\1\\b)+", with: "$1",
+            options: .regularExpression)
     }
 
     /// Explicit dictation of punctuation marks. Off by default because Whisper
