@@ -88,6 +88,16 @@ enum TextInserter {
         ]
         guard textRoles.contains(role) else { return false }
 
+        // Refuse web content, even though it advertises itself as writable.
+        //
+        // Chromium reports kAXSelectedText as settable for ordinary web text
+        // fields, but writing it goes around the DOM's input pipeline: the
+        // editor's model never sees the change, so React, Slack, Notion,
+        // CodeMirror and Monaco either drop the text on the next render or
+        // duplicate it. That covers most apps people dictate into, and the
+        // failure is silent, so anything under a web area gets pasted instead.
+        guard !isInsideWebContent(target) else { return false }
+
         // Never type into a password field, even if we somehow have focus.
         var subroleValue: CFTypeRef?
         AXUIElementCopyAttributeValue(target, kAXSubroleAttribute as CFString, &subroleValue)
@@ -103,6 +113,37 @@ enum TextInserter {
         let status = AXUIElementSetAttributeValue(
             target, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
         return status == .success
+    }
+
+    /// Walks up the accessibility tree looking for a web area, which marks the
+    /// element as browser-rendered rather than a native AppKit control.
+    /// Bounded because some hierarchies are deep and this runs in the hot path.
+    private static func isInsideWebContent(_ element: AXUIElement) -> Bool {
+        var current = element
+        for _ in 0..<12 {
+            var roleValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                current, kAXRoleAttribute as CFString, &roleValue) == .success,
+               let role = roleValue as? String,
+               role == "AXWebArea" || role == "AXScrollArea" && isWebScrollArea(current) {
+                return role == "AXWebArea"
+            }
+
+            var parentValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                current, kAXParentAttribute as CFString, &parentValue) == .success,
+                let parent = parentValue, CFGetTypeID(parent) == AXUIElementGetTypeID()
+            else { return false }
+            current = parent as! AXUIElement
+        }
+        return false
+    }
+
+    private static func isWebScrollArea(_ element: AXUIElement) -> Bool {
+        var description: CFTypeRef?
+        AXUIElementCopyAttributeValue(
+            element, kAXRoleDescriptionAttribute as CFString, &description)
+        return (description as? String)?.localizedCaseInsensitiveContains("html") ?? false
     }
 
     // MARK: - Strategy 2: clipboard + paste

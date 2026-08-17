@@ -182,9 +182,19 @@ final class WhisperEngine: TranscriptionEngine {
         params.no_speech_thold = 0.6
 
         params.suppress_blank = true
-        // Suppresses "(wind blowing)"-style non-speech tokens at the decoder
-        // level, which is far more reliable than stripping them with regex.
-        params.suppress_nst = true
+
+        // Deliberately left off (whisper.cpp's own default).
+        //
+        // The name suggests it suppresses "(wind blowing)"-style annotations.
+        // It does not — `non_speech_tokens` in whisper.cpp is a punctuation
+        // list, and enabling this puts -INFINITY on the logits for
+        // ( ) : ; / @ [ ] { } < > = + * # _ | ~ ^ at every decode step, making
+        // them impossible to emit. Measured with it on: "3:30" came out "3.30",
+        // "(see the notes)" lost its brackets, and "get_user_name" became
+        // "get user name". Noise annotations are stripped in the formatter
+        // instead, where the cost of a mistake is one bad substitution rather
+        // than a character the user can never dictate.
+        params.suppress_nst = false
 
         // Physical cores only. Counting efficiency cores in slows decoding on
         // Apple silicon because the fast cores wait on the slow ones.
