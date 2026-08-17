@@ -169,9 +169,19 @@ enum SelfTest {
             print("ERROR: no model installed. Launch Murmur and download one.")
             exit(1)
         }
-        guard let samples = loadSamples(path: path) else {
+        guard var samples = loadSamples(path: path) else {
             print("ERROR: could not read audio at \(path)")
             exit(1)
+        }
+        // --gain lets us check empirically whether input level actually affects
+        // recognition, which decides whether normalizing on capture is worth
+        // the hallucination risk of amplifying a quiet room.
+        if let gainIndex = CommandLine.arguments.firstIndex(of: "--gain"),
+           gainIndex + 1 < CommandLine.arguments.count,
+           let gain = Float(CommandLine.arguments[gainIndex + 1]) {
+            samples = samples.map { $0 * gain }
+            let rms = (samples.reduce(0) { $0 + $1 * $1 } / Float(max(samples.count, 1))).squareRoot()
+            print("gain: \(gain)x, resulting RMS \(String(format: "%.5f", rms))")
         }
 
         let seconds = Double(samples.count) / Double(Constants.sampleRate)

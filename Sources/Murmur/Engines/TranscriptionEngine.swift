@@ -105,3 +105,24 @@ enum Constants {
     /// Whisper pads everything shorter than this to a full 30 s window anyway.
     static let minimumSeconds: Double = 0.25
 }
+
+/// Cancellation flag shared between the UI and a running decode.
+///
+/// The decode reads this from the engine queue while the UI sets it from the
+/// main thread, so it cannot be main-actor state — it needs its own lock.
+final class CancellationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}

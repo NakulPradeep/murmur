@@ -33,7 +33,9 @@ final class DictationController: ObservableObject {
     let recorder = AudioRecorder()
     private let hotkeys = HotkeyManager()
     private var levelTimer: Timer?
-    private var cancelRequested = false
+    /// Replaced per recording; the running decode holds its own reference, so
+    /// cancelling one dictation can never abort the next.
+    private var cancellation = CancellationToken()
     /// Tail of the last insertion, fed back as decoder context so a sentence
     /// split across two presses stays coherent.
     private var priorContext: String?
@@ -53,29 +55,28 @@ final class DictationController: ObservableObject {
         hotkeys.onRelease = { [weak self] duration in
             Task { @MainActor in self?.hotkeyReleased(duration) }
         }
+        // These two run inside the CGEventTap callback, which is serviced by the
+        // main run loop — so they are already on the main thread and must decide
+        // synchronously whether to swallow the key. Dispatching to main here
+        // would deadlock the entire app on the first Return press.
         hotkeys.onEnter = { [weak self] in
-            // Return finishes a hands-free recording, and is swallowed so it
-            // does not also submit whatever the user is typing into.
-            guard let self else { return false }
-            var consumed = false
-            DispatchQueue.main.sync {
-                if self.state == .recording, self.handsFree {
-                    self.finishRecording()
-                    consumed = true
-                }
+            MainActor.assumeIsolated {
+                guard let self, self.state == .recording, self.handsFree else { return false }
+                // Return finishes a hands-free recording and is swallowed, so it
+                // does not also submit whatever the user is typing into.
+                self.finishRecording()
+                return true
             }
-            return consumed
         }
         hotkeys.onEscape = { [weak self] in
-            guard let self else { return false }
-            var consumed = false
-            DispatchQueue.main.sync {
-                if self.state == .recording || self.state == .transcribing {
-                    self.cancel()
-                    consumed = true
-                }
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.state == .recording || self.state == .transcribing
+                        || self.state == .polishing
+                else { return false }
+                self.cancel()
+                return true
             }
-            return consumed
         }
         hotkeys.start()
         loadHistory()
@@ -147,7 +148,7 @@ final class DictationController: ObservableObject {
                 do {
                     if !self.recorder.isRunning { try self.recorder.startMonitoring() }
                     self.recorder.beginCapture()
-                    self.cancelRequested = false
+                    self.cancellation = CancellationToken()
                     self.handsFree = handsFreeIntent
                     self.state = .recording
                     self.startLevelUpdates()
@@ -165,8 +166,24 @@ final class DictationController: ObservableObject {
     private func finishRecording() {
         guard state == .recording else { return }
         stopLevelUpdates()
-        let (samples, clipped) = recorder.finishCapture()
         handsFree = false
+        // The tap delivers in buffers, so the last fraction of a second of
+        // speech is still in flight when the key comes up. Harvesting
+        // immediately clips the final consonant, which costs a whole word.
+        state = .transcribing
+        notify()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.tailSeconds) { [weak self] in
+            self?.harvestAndTranscribe()
+        }
+    }
+
+    /// Long enough to catch the in-flight tap buffer, short enough to stay
+    /// imperceptible.
+    private static let tailSeconds: TimeInterval = 0.12
+
+    private func harvestAndTranscribe() {
+        guard state == .transcribing else { return }
+        let (samples, clipped) = recorder.finishCapture()
 
         let seconds = Double(samples.count) / Double(Constants.sampleRate)
         guard seconds >= minimumSeconds else {
@@ -176,20 +193,17 @@ final class DictationController: ObservableObject {
             return
         }
         if clipped { Log.log("warning: input clipped — microphone gain may be too high") }
-
-        state = .transcribing
-        notify()
         Log.log("recording stopped: \(String(format: "%.2f", seconds))s, transcribing")
 
         var request = TranscriptionRequest(samples: Array(samples.prefix(
             Int(maximumSeconds) * Constants.sampleRate)))
         request.vocabulary = Prefs.vocabulary.map(\.term).filter { !$0.isEmpty }
         request.priorContext = priorContext
-        request.isCancelled = { [weak self] in
-            // Read off the engine queue; a stale false just means one more
-            // decode chunk runs before the cancel lands.
-            MainActor.assumeIsolated { self?.cancelRequested ?? false }
-        }
+        // Captured by value: the decode reads this from the engine queue, and
+        // it must keep pointing at this recording's token even if a later
+        // recording replaces the controller's current one.
+        let token = cancellation
+        request.isCancelled = { token.isCancelled }
 
         EngineRouter.shared.transcribe(request) { [weak self] result in
             Task { @MainActor in self?.handle(result, seconds: seconds) }
@@ -263,7 +277,7 @@ final class DictationController: ObservableObject {
         state = .idle
         defer { notify() }
 
-        guard !cancelRequested else {
+        guard !cancellation.isCancelled else {
             Log.log("insertion skipped: cancelled")
             return
         }
@@ -286,7 +300,7 @@ final class DictationController: ObservableObject {
 
     func cancel() {
         guard state != .idle else { return }
-        cancelRequested = true
+        cancellation.cancel()
         stopLevelUpdates()
         recorder.cancelCapture()
         handsFree = false

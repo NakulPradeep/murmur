@@ -164,7 +164,19 @@ final class HotkeyManager {
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            // macOS disables the tap if a callback runs long or on certain user
+            // input. If that happened while the trigger was held, the key-up
+            // never arrives, `pressedAt` stays set, and every later press is
+            // ignored because the down-edge check sees a press already in
+            // progress — dictation silently stops working until relaunch.
+            // Clearing the press state here is what makes recovery complete.
+            if pressedAt != nil {
+                pressedAt = nil
+                Log.log("event tap was disabled mid-press — clearing stuck trigger state")
+                DispatchQueue.main.async { self.onRelease?(0) }
+            }
             if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            Log.log("event tap re-enabled after \(type == .tapDisabledByTimeout ? "timeout" : "user input")")
 
         case .flagsChanged:
             guard trigger.isModifier,

@@ -15,9 +15,6 @@ import Accelerate
 final class AudioRecorder {
     /// How much audio before the key press to keep.
     private let preRollSeconds: Double = 0.5
-    /// Target loudness for normalization. Quiet dictation measurably hurts
-    /// recognition; boosting to a consistent level helps.
-    private let targetRMS: Float = 0.06
 
     private let engine = AVAudioEngine()
     private var converter: AVAudioConverter?
@@ -220,32 +217,19 @@ final class AudioRecorder {
 
     // MARK: - Preprocessing
 
-    /// DC removal then gain normalization. Both are cheap and both measurably
-    /// help recognizers that were trained on level-normalized corpora.
+    /// Deliberately does nothing to the signal.
+    ///
+    /// Gain normalization and DC-offset removal are the obvious things to reach
+    /// for here, and both were measured to be worthless: transcribing the same
+    /// clip at 1×, 0.1× and 0.03× gain (RMS 0.17 down to 0.005) produced
+    /// identical text. Normalizing is worse than neutral — boosting a quiet
+    /// room lifts background noise toward speech level, which is a known way to
+    /// make Whisper hallucinate. The recognizers do their own mel normalization;
+    /// the best thing to hand them is the samples as captured.
+    ///
+    /// Kept as a seam so any future processing has an obvious home, and so the
+    /// reasoning above does not get re-discovered the hard way.
     private func preprocess(_ input: [Float]) -> [Float] {
-        var samples = input
-        let n = vDSP_Length(samples.count)
-
-        // Remove DC offset — some USB interfaces have a persistent bias that
-        // eats headroom and skews the mel spectrogram.
-        var mean: Float = 0
-        vDSP_meanv(samples, 1, &mean, n)
-        var negMean = -mean
-        vDSP_vsadd(samples, 1, &negMean, &samples, 1, n)
-
-        // Normalize toward a target RMS, but never amplify near-silence into
-        // noise, and never push samples into clipping.
-        var rms: Float = 0
-        vDSP_rmsqv(samples, 1, &rms, n)
-        guard rms > 0.0005 else { return samples }
-
-        var peak: Float = 0
-        vDSP_maxmgv(samples, 1, &peak, n)
-        let desired = targetRMS / rms
-        let ceiling = peak > 0 ? 0.97 / peak : desired
-        var gain = min(desired, ceiling, 8.0)
-        guard gain > 1.02 || gain < 0.98 else { return samples }
-        vDSP_vsmul(samples, 1, &gain, &samples, 1, n)
-        return samples
+        input
     }
 }
