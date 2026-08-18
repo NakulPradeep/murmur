@@ -164,14 +164,49 @@ struct TranscriptFormatter {
         return tokens.map(\.text).joined()
     }
 
+    /// Words whose repetition is meaningful rather than a stammer.
+    /// "twenty twenty four" is a year, "fifty fifty" is a split — collapsing
+    /// either silently changes the number the user said.
+    private static let repeatableWords: Set<String> = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+        "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+        "hundred", "thousand", "million", "billion",
+    ]
+
     /// Restarts and stammers: "the the report", "I I think", "we we should".
-    /// Only collapses immediate repeats of the same word, which are always
-    /// disfluencies in dictation — genuine doubles like "had had" are rare
-    /// enough, and reading worse, that removing them is the better default.
+    ///
+    /// Collapses immediate repeats of the same word, except number words, where
+    /// the repetition carries meaning.
     private func collapseStutters(_ text: String) -> String {
-        text.replacingOccurrences(
-            of: "(?i)\\b(\\w+)(\\s+\\1\\b)+", with: "$1",
-            options: .regularExpression)
+        var tokens = Tokenizer.split(text)
+        var index = 0
+        while index < tokens.count {
+            guard tokens[index].isWord else { index += 1; continue }
+            let word = tokens[index].text.lowercased()
+            guard !Self.repeatableWords.contains(word) else { index += 1; continue }
+
+            // Look ahead for the same word separated only by spaces.
+            var scan = index + 1
+            var lastDuplicateEnd = index
+            while scan < tokens.count {
+                if tokens[scan].isWord {
+                    guard tokens[scan].text.lowercased() == word else { break }
+                    lastDuplicateEnd = scan
+                    scan += 1
+                } else if tokens[scan].text.allSatisfy({ $0 == " " }) {
+                    scan += 1
+                } else {
+                    break
+                }
+            }
+            if lastDuplicateEnd > index {
+                tokens.removeSubrange((index + 1)...lastDuplicateEnd)
+            }
+            index += 1
+        }
+        return tokens.map(\.text).joined()
     }
 
     /// Explicit dictation of punctuation marks. Off by default because Whisper
@@ -237,7 +272,10 @@ struct TranscriptFormatter {
         while i < text.endIndex {
             let ch = text[i]
             if capitalizeNext, ch.isLetter {
-                result.append(Character(ch.uppercased()))
+                // Uppercasing one character can produce several — German "ß"
+                // becomes "SS" — and Character(_: String) traps on anything but
+                // a single grapheme. Append the string instead.
+                result.append(contentsOf: ch.uppercased())
                 capitalizeNext = false
             } else {
                 result.append(ch)

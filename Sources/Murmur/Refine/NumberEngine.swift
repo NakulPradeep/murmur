@@ -148,13 +148,32 @@ enum NumberEngine {
         var lastWasTeen = false
         var zeroOnly = false
         var ordinalSuffix: String?
+        /// Set when the spoken number is too large to represent; the phrase is
+        /// then left exactly as the recognizer produced it.
+        var overflowed = false
+        /// Set once a two-part year has been folded in, so "twenty twenty
+        /// twenty" cannot keep compounding.
+        var didYear = false
 
-        var value: Int { total + current }
+        var value: Int {
+            let (sum, overflow) = total.addingReportingOverflow(current)
+            return overflow ? Int.max : sum
+        }
+
+        /// True when `w` reads as the second half of a year: "nineteen |
+        /// eighty four", "twenty | twenty four". The leading part is limited to
+        /// 10–29 so this covers 1000–2999 and leaves "forty fifty" alone.
+        func startsYearTail(_ w: NumberWord) -> Bool {
+            guard !didYear, total == 0, (10...29).contains(current),
+                  w.isTens || w.isTeen else { return false }
+            return true
+        }
 
         mutating func canAccept(_ w: NumberWord) -> Bool {
             if !sawAnything { return true }
             if ordinalSuffix != nil { return false }  // ordinal terminates a number
             if w.isZero { return false }
+            if startsYearTail(w) { return true }
             if w.isUnit { return !lastWasUnit && !lastWasTeen }
             if w.isTens || w.isTeen { return !lastWasUnit && !lastWasTens && !lastWasTeen }
             if w.isScale { return true }
@@ -162,13 +181,34 @@ enum NumberEngine {
         }
 
         mutating func accept(_ w: NumberWord) {
+            if startsYearTail(w) {
+                // "nineteen" + "eighty" -> 1900 + 80, so a following unit
+                // ("four") lands in the tens slot and completes 1984.
+                total = current * 100
+                current = w.value
+                didYear = true
+                sawAnything = true
+                lastWasUnit = false
+                lastWasTens = w.isTens
+                lastWasTeen = w.isTeen
+                consumedWords += 1
+                return
+            }
             sawAnything = true
             if w.isZero && consumedWords == 0 { zeroOnly = true }
             if w.isScale {
+                // A recognizer repetition loop ("hundred hundred hundred…")
+                // overflows Int here and traps. Saturate instead: the phrase is
+                // nonsense either way, but the app must not die on it.
                 if w.value == 100 {
-                    current = max(current, 1) * 100
+                    let (product, overflow) = max(current, 1).multipliedReportingOverflow(by: 100)
+                    if overflow { overflowed = true } else { current = product }
                 } else {
-                    total += max(current, 1) * w.value
+                    let (product, mulOverflow) =
+                        max(current, 1).multipliedReportingOverflow(by: w.value)
+                    let (sum, addOverflow) = total.addingReportingOverflow(
+                        mulOverflow ? 0 : product)
+                    if mulOverflow || addOverflow { overflowed = true } else { total = sum }
                     current = 0
                 }
                 lastWasUnit = false; lastWasTens = false; lastWasTeen = false
@@ -291,6 +331,14 @@ enum NumberEngine {
             // bare "hundred" as in "hundreds of people" stays).
             if !phraseIsMultiWord {
                 if first.isScale { out += raw; i += 1; continue }
+            }
+
+            // A number too large to represent is a recognizer repetition loop,
+            // not something the user said. Leave the words untouched.
+            if acc.overflowed {
+                out += raw
+                i += 1
+                continue
             }
 
             var rendered = String(acc.value)

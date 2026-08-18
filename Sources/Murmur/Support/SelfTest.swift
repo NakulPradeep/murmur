@@ -95,6 +95,19 @@ enum SelfTest {
               mode: .off, corrections: false)
         // A repeated word across a sentence break is not a stutter.
         check("that is that. that is fine", "That is that. That is fine", mode: .off)
+        // Repeated number words are meaningful, not stammers.
+        check("it happened in twenty twenty four", "It happened in 2024")
+        check("we split it fifty fifty", "We split it fifty fifty", mode: .off)
+        check("he said no no no", "He said no", mode: .off)
+
+        print("years:")
+        check("born in nineteen eighty four", "Born in 1984")
+        check("back in nineteen ninety", "Back in 1990")
+        check("the seventeen seventy six revolution", "The 1776 revolution")
+        check("it is twenty twenty", "It is 2020")
+        // Not years: an ordinary compound, and a range too large to be one.
+        check("I have twenty five apples", "I have 25 apples")
+        check("forty fifty people came", "40 50 people came")
 
         print("vocabulary:")
         check("I told karen about it", "I told Kiran about it",
