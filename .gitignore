@@ -8,3 +8,6 @@ vendor/whisper.cpp/build/
 
 *.xcuserstate
 .DS_Store
+Resources/Murmur.iconset/
+Resources/icon-preview.png
+marketing/render.py
