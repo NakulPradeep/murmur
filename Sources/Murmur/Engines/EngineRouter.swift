@@ -11,6 +11,11 @@ final class EngineRouter {
     private let queue = DispatchQueue(label: "murmur.engine", qos: .userInitiated)
     private let whisper = WhisperEngine()
     private let parakeet = ParakeetEngine()
+    /// A second, independent Whisper used only to rescue utterances the primary
+    /// engine rendered in the wrong script. Kept separate so loading it never
+    /// disturbs whichever engine is primary.
+    private let languageGuard = WhisperEngine()
+    private var guardModel: ModelDescriptor?
 
     private let stateLock = NSLock()
     private var activeKind: EngineKind?
@@ -88,6 +93,7 @@ final class EngineRouter {
             for kind in EngineKind.allCases where kind != model.engine {
                 engine(for: kind).unload()
             }
+            loadLanguageGuardIfNeeded(primary: model)
 
             let target = engine(for: model.engine)
             let path = ModelCatalog.localURL(for: model.file).path
@@ -118,6 +124,7 @@ final class EngineRouter {
         queue.sync {
             whisper.unload()
             parakeet.unload()
+            languageGuard.unload()
         }
     }
 
@@ -134,7 +141,7 @@ final class EngineRouter {
                 return
             }
             do {
-                let result = try engine.transcribe(request)
+                let result = rescueIfWrongScript(try engine.transcribe(request), request: request)
                 DispatchQueue.main.async { completion(.success(result)) }
             } catch {
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -146,8 +153,81 @@ final class EngineRouter {
     func transcribeSync(_ request: TranscriptionRequest) throws -> TranscriptionResult {
         try queue.sync {
             guard let engine = current else { throw TranscriptionError.noModelLoaded }
-            return try engine.transcribe(request)
+            return rescueIfWrongScript(try engine.transcribe(request), request: request)
         }
+    }
+
+    /// Called when the spoken language changes: the guard depends on it, and
+    /// the primary model may not need reloading.
+    func languageDidChange() {
+        queue.async { [self] in
+            guard let model = stateLock.withLock({ activeModel }) else { return }
+            loadLanguageGuardIfNeeded(primary: model)
+        }
+    }
+
+    // MARK: - Wrong-script rescue
+
+    /// Picks a Whisper model that can be pinned to `language`. English-only
+    /// models are preferred when they fit, because the guard runs on the rescue
+    /// path where being small and fast matters more than breadth.
+    private static func guardModelFor(language: String) -> ModelDescriptor? {
+        let installed = ModelCatalog.installed.filter { $0.engine == .whisper }
+        guard !installed.isEmpty else { return nil }
+        if language == "en" {
+            let englishOnly = installed.filter { $0.file.contains(".en.") }
+            if let smallest = englishOnly.min(by: { $0.sizeBytes < $1.sizeBytes }) {
+                return smallest
+            }
+        }
+        // Non-English needs a multilingual model.
+        return installed.filter { !$0.file.contains(".en.") }
+            .min { $0.sizeBytes < $1.sizeBytes } ?? installed.min { $0.sizeBytes < $1.sizeBytes }
+    }
+
+    /// The guard is only useful when the primary engine cannot be told what
+    /// language to expect. Whisper takes a language parameter, so when it is
+    /// primary there is nothing to rescue.
+    private func loadLanguageGuardIfNeeded(primary: ModelDescriptor) {
+        let language = Prefs.language
+        guard primary.engine == .parakeet, language != "auto",
+              let model = Self.guardModelFor(language: language) else {
+            languageGuard.unload()
+            guardModel = nil
+            return
+        }
+        guard guardModel != model else { return }
+        do {
+            try languageGuard.load(modelPath: ModelCatalog.localURL(for: model.file).path)
+            guardModel = model
+            Log.log("language guard ready: \(model.file) pinned to \(language)")
+        } catch {
+            guardModel = nil
+            Log.log("language guard unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    /// Re-decodes when the primary engine wrote the wrong script.
+    private func rescueIfWrongScript(
+        _ result: TranscriptionResult, request: TranscriptionRequest
+    ) -> TranscriptionResult {
+        let language = Prefs.language
+        let expected = ScriptGuard.expectedScript(for: language)
+        guard ScriptGuard.isWrongScript(result.text, expected: expected) else { return result }
+
+        Log.log("wrong script from \(result.engineID) — re-decoding pinned to \(language)")
+        guard languageGuard.isReady else {
+            Log.log("no language guard installed; keeping the misdetected text")
+            return result
+        }
+        var pinned = request
+        pinned.language = language
+        guard let rescued = try? languageGuard.transcribe(pinned),
+              !rescued.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return result
+        }
+        Log.log("rescued via \(rescued.modelName)")
+        return rescued
     }
 
     private func notify() {

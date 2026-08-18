@@ -136,6 +136,34 @@ enum SelfTest {
             }
         }
 
+        print("wrong-script detection:")
+        func scriptCheck(_ text: String, _ language: String, _ expectWrong: Bool, _ label: String) {
+            checks += 1
+            let expected = ScriptGuard.expectedScript(for: language)
+            let got = ScriptGuard.isWrongScript(text, expected: expected)
+            if got == expectWrong {
+                print("  PASS  \(label)")
+            } else {
+                failures += 1
+                print("  FAIL  \(label): expected wrongScript=\(expectWrong), got \(got)")
+            }
+        }
+        // The reported bug: English spoken, Cyrillic written.
+        scriptCheck("\u{412}\u{43E}\u{443}, \u{438}\u{442} \u{432}\u{43E}\u{43A}\u{441}", "en", true,
+                    "English pinned, Cyrillic transliteration is caught")
+        scriptCheck("Whoa, it works", "en", false, "English pinned, Latin text passes")
+        // Someone actually speaking Russian must not be second-guessed.
+        scriptCheck("\u{412}\u{43E}\u{443}, \u{438}\u{442} \u{432}\u{43E}\u{43A}\u{441}", "ru", false,
+                    "Russian pinned, Cyrillic passes")
+        scriptCheck("Whoa, it works", "ru", true, "Russian pinned, Latin is caught")
+        // Auto means we have no expectation, so never override.
+        scriptCheck("\u{412}\u{43E}\u{443}, \u{438}\u{442} \u{432}\u{43E}\u{43A}\u{441}", "auto", false,
+                    "auto never overrides")
+        // A borrowed word or a short reply is not evidence of misdetection.
+        scriptCheck("The word \u{43C}\u{438}\u{440} means peace", "en", false,
+                    "a quoted foreign word is tolerated")
+        scriptCheck("\u{41E}\u{41A}", "en", false, "too short to judge")
+
         print("\n\(checks - failures)/\(checks) passed")
         print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
         exit(failures == 0 ? 0 : 1)
@@ -198,6 +226,7 @@ enum SelfTest {
 
             var request = TranscriptionRequest(samples: samples)
             request.vocabulary = Prefs.vocabulary.map(\.term)
+            request.language = Prefs.language
             do {
                 let result = try EngineRouter.shared.transcribeSync(request)
                 print("transcribed in \(String(format: "%.2f", result.processingTime))s "
@@ -263,6 +292,7 @@ enum SelfTest {
                 do {
                     var request = TranscriptionRequest(samples: samples)
                     request.vocabulary = Prefs.vocabulary.map(\.term)
+                    request.language = Prefs.language
                     let result = try EngineRouter.shared.transcribeSync(request)
                     let speed = seconds / max(result.processingTime, 0.001)
                     print("\(model.title) [\(model.engine.rawValue)]")

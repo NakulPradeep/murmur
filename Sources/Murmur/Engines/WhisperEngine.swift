@@ -170,8 +170,8 @@ final class WhisperEngine: TranscriptionEngine {
 
         // Beam search materially beats greedy on short utterances, and short
         // clips are cheap enough that the extra passes are invisible.
-        params.beam_search.beam_size = 5
-        params.greedy.best_of = 5
+        params.beam_search.beam_size = Int32(Self.beamSizeOverride ?? 5)
+        params.greedy.best_of = Int32(Self.beamSizeOverride ?? 5)
 
         // Temperature-fallback ladder: retry hotter only when the decode looks
         // degenerate. Without this, one bad window can emit a repeat loop.
@@ -202,6 +202,14 @@ final class WhisperEngine: TranscriptionEngine {
 
         params.no_context = request.priorContext == nil
     }
+
+    /// Set by --beam on the command line so decode quality/speed can be
+    /// measured without rebuilding.
+    static let beamSizeOverride: Int? = {
+        guard let i = CommandLine.arguments.firstIndex(of: "--beam"),
+              i + 1 < CommandLine.arguments.count else { return nil }
+        return Int(CommandLine.arguments[i + 1])
+    }()
 
     private static let decodeThreadCount: Int = {
         var count: Int32 = 0

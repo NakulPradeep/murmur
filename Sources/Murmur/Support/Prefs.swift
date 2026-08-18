@@ -73,6 +73,7 @@ enum PrefKey {
     static let polishMode = "polishMode"
     static let launchAtLogin = "launchAtLogin"
     static let keepHistory = "keepHistory"
+    static let language = "language"
 }
 
 /// Typed wrapper over UserDefaults, shared by the dictation pipeline and the
@@ -95,8 +96,10 @@ enum Prefs {
             PrefKey.polishMode: PolishMode.off.rawValue,
             PrefKey.launchAtLogin: false,
             PrefKey.keepHistory: true,
+            PrefKey.language: "en",
         ])
         migrateLegacyReplacements()
+        seedVocabularyIfEmpty()
     }
 
     static var numberMode: NumberMode {
@@ -105,6 +108,14 @@ enum Prefs {
 
     static var polishMode: PolishMode {
         PolishMode(rawValue: defaults.string(forKey: PrefKey.polishMode) ?? "") ?? .off
+    }
+
+    /// Spoken language, or "auto". Defaults to English rather than auto:
+    /// the multilingual recognizer will otherwise sometimes decide a short
+    /// English utterance was Russian and transliterate it into Cyrillic.
+    static var language: String {
+        get { defaults.string(forKey: PrefKey.language) ?? "en" }
+        set { defaults.set(newValue, forKey: PrefKey.language) }
     }
 
     static var selectedModel: String {
@@ -152,6 +163,13 @@ enum Prefs {
             VocabularyEntry(term: $0.replace, aliases: [$0.find])
         }
         Log.log("migrated \(legacy.count) v1 replacements into the vocabulary")
+    }
+
+    /// Seeds one entry on first run so the vocabulary feature is discoverable
+    /// and the app's own name comes out capitalized when people talk about it.
+    private static func seedVocabularyIfEmpty() {
+        guard defaults.data(forKey: PrefKey.vocabulary) == nil else { return }
+        vocabulary = [VocabularyEntry(term: "Murmur")]
     }
 
     static var formatterOptions: FormatterOptions {

@@ -199,6 +199,7 @@ final class DictationController: ObservableObject {
             Int(maximumSeconds) * Constants.sampleRate)))
         request.vocabulary = Prefs.vocabulary.map(\.term).filter { !$0.isEmpty }
         request.priorContext = priorContext
+        request.language = Prefs.language
         // Captured by value: the decode reads this from the engine queue, and
         // it must keep pointing at this recording's token even if a later
         // recording replaces the controller's current one.

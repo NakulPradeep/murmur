@@ -142,11 +142,28 @@ private struct ModelSettings: View {
     @EnvironmentObject private var store: ModelStore
     @AppStorage(PrefKey.selectedModel) private var selectedModel = "auto"
     @AppStorage(PrefKey.polishMode) private var polishMode = PolishMode.off.rawValue
+    @AppStorage(PrefKey.language) private var language = "en"
 
     private var polish: PolishMode { PolishMode(rawValue: polishMode) ?? .off }
 
     var body: some View {
         Form {
+            Section("Language") {
+                Picker("I speak", selection: $language) {
+                    ForEach(SpokenLanguage.all) { lang in
+                        Text(lang.name).tag(lang.code)
+                    }
+                }
+                .onChange(of: language) { EngineRouter.shared.languageDidChange() }
+                Text(language == "auto"
+                    ? "The recognizer will guess. On short phrases it sometimes guesses wrong "
+                        + "and writes your words in another alphabet."
+                    : "Keeps short phrases from being mistaken for another language and "
+                        + "written in the wrong alphabet.")
+                    .font(.callout)
+                    .foregroundStyle(language == "auto" ? .orange : .secondary)
+            }
+
             Section("Active model") {
                 Picker("Use", selection: $selectedModel) {
                     Text("Best installed").tag("auto")
