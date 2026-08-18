@@ -1,5 +1,10 @@
+# Build products
 .build/
 build/
-vendor/
+dist/
+
+# The vendored engine is a submodule; its compiled artefacts are not ours to track.
+vendor/whisper.cpp/build/
+
 *.xcuserstate
 .DS_Store

@@ -120,20 +120,24 @@ You only do this once. If you'd rather not, build it yourself from source with
 the instructions below — which is the better answer for a privacy tool anyway,
 since then you know exactly what you are running.
 
-## Building
+## Building from source
+
+Requires the Xcode command-line tools and CMake (`brew install cmake`).
 
 ```bash
-scripts/build-app.sh        # → build/Murmur.app
+git clone --recurse-submodules https://github.com/YOURNAME/murmur.git
+cd murmur
+./scripts/setup.sh
 ```
 
-Prereqs: Xcode toolchain. whisper.cpp is vendored and prebuilt once:
+That fetches the vendored speech engine, builds it with Metal (a few minutes,
+once), then builds `build/Murmur.app`. Re-running it is safe and skips whatever
+is already done.
 
-```bash
-cd vendor/whisper.cpp
-cmake -B build -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON \
-      -DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j 8
-```
+If you cloned without `--recurse-submodules`, run `git submodule update --init`
+first — the engine lives in `vendor/whisper.cpp`, pinned to a known-good commit.
+
+To cut a release build: `./scripts/package-release.sh` → `dist/Murmur-1.0.0.zip`.
 
 ## Command line
 
