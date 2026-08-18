@@ -27,11 +27,15 @@ final class DictationController: ObservableObject {
     @Published private(set) var history: [HistoryEntry] = []
     /// 0–1 input level, for the recording indicator.
     @Published private(set) var level: Float = 0
+    /// Words Apple's recognizer has heard so far. Shown while speaking and
+    /// discarded once the accurate engine returns; never inserted.
+    @Published private(set) var caption: String = ""
 
     var onStateChange: (() -> Void)?
 
     let recorder = AudioRecorder()
     private let hotkeys = HotkeyManager()
+    private let liveCaption = LiveCaptionEngine()
     private var levelTimer: Timer?
     /// Replaced per recording; the running decode holds its own reference, so
     /// cancelling one dictation can never abort the next.
@@ -39,6 +43,17 @@ final class DictationController: ObservableObject {
     /// Tail of the last insertion, fed back as decoder context so a sentence
     /// split across two presses stays coherent.
     private var priorContext: String?
+
+    /// What the last insertion typed, and what it would have typed without AI
+    /// polish. Kept so the user can swap one for the other — over-editing is
+    /// the top complaint about tools that do this, and being able to take it
+    /// back is the answer.
+    private(set) var lastInserted: String?
+    private(set) var lastRawAlternative: String?
+    var canRevertPolish: Bool {
+        guard let a = lastInserted, let b = lastRawAlternative else { return false }
+        return a != b
+    }
 
     /// Presses shorter than this toggle hands-free instead of push-to-talk.
     private let tapThreshold: TimeInterval = 0.35
@@ -79,6 +94,16 @@ final class DictationController: ObservableObject {
             }
         }
         hotkeys.start()
+
+        LiveCaptionEngine.prepare()
+        liveCaption.onCaptionChange = { [weak self] text in
+            self?.caption = text
+            self?.onStateChange?()
+        }
+        recorder.onCaptureBuffer = { [weak self] buffer in
+            self?.liveCaption.feed(buffer)
+        }
+
         loadHistory()
     }
 
@@ -152,6 +177,10 @@ final class DictationController: ObservableObject {
                     self.handsFree = handsFreeIntent
                     self.state = .recording
                     self.startLevelUpdates()
+                    if Prefs.defaults.bool(forKey: PrefKey.liveCaption),
+                       LiveCaptionEngine.isAvailable {
+                        self.liveCaption.start(language: Prefs.language)
+                    }
                     Log.log("recording started (handsFree=\(handsFreeIntent))")
                     self.play(.start)
                     self.notify()
@@ -183,6 +212,7 @@ final class DictationController: ObservableObject {
 
     private func harvestAndTranscribe() {
         guard state == .transcribing else { return }
+        liveCaption.stop()
         let (samples, clipped) = recorder.finishCapture()
 
         let seconds = Double(samples.count) / Double(Constants.sampleRate)
@@ -262,7 +292,8 @@ final class DictationController: ObservableObject {
                         .format(polished)
                     self.complete(text: final,
                                   display: final.trimmingCharacters(in: .whitespacesAndNewlines),
-                                  transcription: transcription, seconds: seconds)
+                                  transcription: transcription, seconds: seconds,
+                                  rawAlternative: text)
                 } else {
                     self.complete(text: text, display: display,
                                   transcription: transcription, seconds: seconds)
@@ -273,7 +304,8 @@ final class DictationController: ObservableObject {
 
     private func complete(
         text: String, display: String,
-        transcription: TranscriptionResult, seconds: Double
+        transcription: TranscriptionResult, seconds: Double,
+        rawAlternative: String? = nil
     ) {
         state = .idle
         defer { notify() }
@@ -287,6 +319,8 @@ final class DictationController: ObservableObject {
             text: display, date: Date(),
             engine: transcription.modelName, seconds: seconds))
         priorContext = String(display.suffix(160))
+        lastInserted = text
+        lastRawAlternative = rawAlternative ?? text
 
         let outcome = TextInserter.insert(text)
         switch outcome {
@@ -299,10 +333,22 @@ final class DictationController: ObservableObject {
         }
     }
 
+    /// Replaces the text just inserted with the unpolished version, by
+    /// selecting back over what was typed and pasting the alternative.
+    func revertPolish() {
+        guard let inserted = lastInserted, let raw = lastRawAlternative,
+              inserted != raw else { return }
+        Log.log("reverting polish (\(inserted.count) -> \(raw.count) chars)")
+        TextInserter.replaceJustTyped(count: inserted.count, with: raw)
+        lastInserted = raw
+        onStateChange?()
+    }
+
     func cancel() {
         guard state != .idle else { return }
         cancellation.cancel()
         stopLevelUpdates()
+        liveCaption.stop()
         recorder.cancelCapture()
         handsFree = false
         state = .idle

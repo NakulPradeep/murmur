@@ -74,6 +74,7 @@ enum PrefKey {
     static let launchAtLogin = "launchAtLogin"
     static let keepHistory = "keepHistory"
     static let language = "language"
+    static let liveCaption = "liveCaption"
 }
 
 /// Typed wrapper over UserDefaults, shared by the dictation pipeline and the
@@ -97,6 +98,7 @@ enum Prefs {
             PrefKey.launchAtLogin: false,
             PrefKey.keepHistory: true,
             PrefKey.language: "en",
+            PrefKey.liveCaption: true,
         ])
         migrateLegacyReplacements()
         seedVocabularyIfEmpty()

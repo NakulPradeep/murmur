@@ -143,6 +143,7 @@ private struct ModelSettings: View {
     @AppStorage(PrefKey.selectedModel) private var selectedModel = "auto"
     @AppStorage(PrefKey.polishMode) private var polishMode = PolishMode.off.rawValue
     @AppStorage(PrefKey.language) private var language = "en"
+    @AppStorage(PrefKey.liveCaption) private var liveCaption = true
 
     private var polish: PolishMode { PolishMode(rawValue: polishMode) ?? .off }
 
@@ -193,6 +194,16 @@ private struct ModelSettings: View {
                 }
             }
 
+            Section("While you speak") {
+                Toggle("Show words in the indicator as you talk", isOn: $liveCaption)
+                Text(LiveCaptionEngine.isAvailable
+                    ? "Uses Apple's on-device recognizer for instant feedback. The final "
+                        + "text still comes from the accurate engine."
+                    : "Needs macOS 26 with a speech model installed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("AI polish") {
                 Picker("After transcribing", selection: $polishMode) {
                     ForEach(PolishMode.allCases) { mode in
@@ -208,7 +219,10 @@ private struct ModelSettings: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Runs entirely on this Mac using Apple Intelligence.")
+                    Text("Runs entirely on this Mac using Apple Intelligence. If it changes "
+                        + "something you meant to keep, choose \u{201C}Use What I Actually "
+                        + "Said\u{201D} from the menu bar (\u{2318}Z) to put your own "
+                        + "wording back.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

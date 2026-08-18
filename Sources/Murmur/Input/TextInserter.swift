@@ -64,6 +64,43 @@ enum TextInserter {
         return .inserted
     }
 
+    /// Replaces the last `count` characters typed with `text`, by extending the
+    /// selection backwards and pasting over it.
+    ///
+    /// Only safe immediately after an insertion, while the caret is still where
+    /// we left it — which is why it is bound to an action the user takes right
+    /// after seeing the result.
+    static func replaceJustTyped(count: Int, with text: String) {
+        guard hasAccessibility, !isSecureInputEnabled, count > 0 else {
+            copyToClipboard(text)
+            return
+        }
+        selectBackwards(count: count)
+        // Give the target app a moment to register the selection before the
+        // paste lands on top of it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            pasteViaClipboard(text)
+        }
+    }
+
+    /// Shift+Left `count` times. Crude, but it is the only mechanism that works
+    /// across native, web and terminal targets alike.
+    private static func selectBackwards(count: Int) {
+        guard let source = CGEventSource(stateID: .privateState) else { return }
+        let left = CGKeyCode(kVK_LeftArrow)
+        // Cap it: a very long dictation is not worth thousands of events, and
+        // the clipboard still holds the alternative.
+        for _ in 0..<min(count, 2000) {
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: left, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: left, keyDown: false)
+            else { return }
+            down.flags = .maskShift
+            up.flags = .maskShift
+            down.post(tap: .cgAnnotatedSessionEventTap)
+            up.post(tap: .cgAnnotatedSessionEventTap)
+        }
+    }
+
     private static func frontmostAppName() -> String {
         NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown app"
     }

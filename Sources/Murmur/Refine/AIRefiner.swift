@@ -18,6 +18,10 @@ import FoundationModels
 ///     explicitly leave it alone.
 enum AIRefiner {
 
+    /// Beyond this the deterministic text is used instead. Chosen so a slow
+    /// polish never turns a quarter-second dictation into a long pause.
+    static let timeoutSeconds: Double = 2.5
+
     enum Availability: Equatable {
         case ready
         case unsupportedOS
@@ -123,11 +127,24 @@ enum AIRefiner {
             : "Clean up this dictation:\n\(trimmed)"
 
         do {
-            let response = try await session.respond(
-                to: prompt,
-                generating: Polished.self,
-                options: GenerationOptions(temperature: 0.0))
-            let candidate = response.content.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidate = try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    let response = try await session.respond(
+                        to: prompt,
+                        generating: Polished.self,
+                        options: GenerationOptions(temperature: 0.0))
+                    return response.content.text
+                }
+                // Cap the wait. Polish is a nicety; making the user watch a
+                // spinner for it is not.
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                    throw CancellationError()
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next() else { throw CancellationError() }
+                return first
+            }.trimmingCharacters(in: .whitespacesAndNewlines)
             guard isPlausible(candidate, original: trimmed) else {
                 Log.log("ai polish rejected: output diverged from the transcript")
                 return nil

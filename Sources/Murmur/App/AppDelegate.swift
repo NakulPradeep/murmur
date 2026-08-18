@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EngineRouter.shared.activatePreferredModel()
 
         AIRefiner.prewarm()
+        LiveCaptionEngine.prepare()
 
         if !TextInserter.hasAccessibility {
             TextInserter.promptForAccessibility()
@@ -73,7 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.menu = buildMenu()
         }
         if Prefs.defaults.bool(forKey: PrefKey.showOverlay) {
-            overlay?.update(state: dictation.state, level: dictation.level)
+            overlay?.update(state: dictation.state, level: dictation.level,
+                            caption: dictation.caption)
         } else {
             overlay?.update(state: .idle, level: 0)
         }
@@ -111,6 +113,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             title: toggleTitle, action: #selector(toggleDictation), keyEquivalent: "d")
         toggle.target = self
         menu.addItem(toggle)
+
+        if dictation.canRevertPolish {
+            let revert = NSMenuItem(
+                title: "Use What I Actually Said",
+                action: #selector(revertPolish), keyEquivalent: "z")
+            revert.target = self
+            menu.addItem(revert)
+        }
 
         if !dictation.history.isEmpty {
             menu.addItem(.separator())
@@ -163,6 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func toggleDictation() { dictation.toggleHandsFree() }
+
+    @objc private func revertPolish() { dictation.revertPolish() }
 
     @objc private func copyHistory(_ sender: NSMenuItem) {
         guard sender.tag < dictation.history.count else { return }

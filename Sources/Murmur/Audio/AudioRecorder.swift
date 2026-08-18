@@ -31,6 +31,10 @@ final class AudioRecorder {
     /// Most recent short-window level, 0–1, for the recording indicator.
     private(set) var level: Float = 0
 
+    /// Receives every captured buffer while a capture is active, for the live
+    /// caption engine. Called on the audio tap thread.
+    var onCaptureBuffer: ((AVAudioPCMBuffer) -> Void)?
+
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: Double(Constants.sampleRate),
@@ -200,6 +204,9 @@ final class AudioRecorder {
         vDSP_maxmgv(samples.baseAddress!, 1, &peak, vDSP_Length(count))
         let scaled = min(1, sqrt(rms) * 3.2)
         level = level * 0.7 + scaled * 0.3
+
+        let capturingNow = lock.withLock { isCapturing }
+        if capturingNow { onCaptureBuffer?(out) }
 
         lock.withLock {
             if peak > 0.99 { didClip = true }

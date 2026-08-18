@@ -12,9 +12,10 @@ final class RecordingOverlay {
     private var panel: NSPanel?
     private let model = OverlayModel()
 
-    func update(state: DictationController.State, level: Float) {
+    func update(state: DictationController.State, level: Float, caption: String = "") {
         model.state = state
         model.level = level
+        model.caption = caption
 
         if state == .idle {
             hide()
@@ -36,7 +37,7 @@ final class RecordingOverlay {
 
     private func build() {
         let hosting = NSHostingView(rootView: OverlayView(model: model))
-        hosting.frame = NSRect(x: 0, y: 0, width: 190, height: 44)
+        hosting.frame = NSRect(x: 0, y: 0, width: OverlayMetrics.width, height: OverlayMetrics.height)
 
         let panel = NSPanel(
             contentRect: hosting.frame,
@@ -70,10 +71,17 @@ final class RecordingOverlay {
     }
 }
 
+enum OverlayMetrics {
+    /// Wide enough for a line of live caption without dominating the screen.
+    static let width: CGFloat = 420
+    static let height: CGFloat = 56
+}
+
 @MainActor
 private final class OverlayModel: ObservableObject {
     @Published var state: DictationController.State = .idle
     @Published var level: Float = 0
+    @Published var caption: String = ""
 }
 
 private struct OverlayView: View {
@@ -89,7 +97,7 @@ private struct OverlayView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             if model.state == .recording {
                 LevelMeter(level: model.level)
                     .frame(width: 42, height: 18)
@@ -98,18 +106,33 @@ private struct OverlayView: View {
                     .controlSize(.small)
                     .frame(width: 42)
             }
-            Text(label)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 0)
+
+            // Once words start arriving they replace the state label: seeing
+            // your own sentence is far better feedback than the word
+            // "Listening".
+            if model.state == .recording, !model.caption.isEmpty {
+                Text(model.caption)
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
+            } else {
+                Text(label)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(width: 190, height: 44)
+        .padding(.horizontal, 16)
+        .frame(width: OverlayMetrics.width, height: OverlayMetrics.height)
+        .animation(.easeOut(duration: 0.12), value: model.caption)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: OverlayMetrics.height / 2, style: .continuous)
                 .fill(.regularMaterial))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: OverlayMetrics.height / 2, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
     }
 }
