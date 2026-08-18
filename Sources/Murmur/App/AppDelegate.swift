@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AIRefiner.prewarm()
         LiveCaptionEngine.prepare()
+        LoginItem.reconcilePreference()
 
         if !TextInserter.hasAccessibility {
             TextInserter.promptForAccessibility()

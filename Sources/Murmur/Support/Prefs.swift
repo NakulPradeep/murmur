@@ -75,6 +75,7 @@ enum PrefKey {
     static let keepHistory = "keepHistory"
     static let language = "language"
     static let liveCaption = "liveCaption"
+    static let overlayPosition = "overlayPosition"
 }
 
 /// Typed wrapper over UserDefaults, shared by the dictation pipeline and the

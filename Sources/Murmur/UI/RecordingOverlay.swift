@@ -7,10 +7,21 @@ import SwiftUI
 /// The panel must never take focus — the whole point is that the user keeps
 /// typing in another app — hence `.nonactivatingPanel`, no key/main status, and
 /// mouse events passing straight through.
+/// A panel that accepts a drag but can never become key or main.
+///
+/// Overriding both is what keeps the pill from stealing focus when it is
+/// clicked — `.nonactivatingPanel` alone governs activation, not key status,
+/// and without these the app you are dictating into loses its cursor.
+final class OverlayPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 @MainActor
 final class RecordingOverlay {
-    private var panel: NSPanel?
+    private var panel: OverlayPanel?
     private let model = OverlayModel()
+    private var moveObserver: NSObjectProtocol?
 
     func update(state: DictationController.State, level: Float, caption: String = "") {
         model.state = state
@@ -39,7 +50,7 @@ final class RecordingOverlay {
         let hosting = NSHostingView(rootView: OverlayView(model: model))
         hosting.frame = NSRect(x: 0, y: 0, width: OverlayMetrics.width, height: OverlayMetrics.height)
 
-        let panel = NSPanel(
+        let panel = OverlayPanel(
             contentRect: hosting.frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
@@ -49,17 +60,61 @@ final class RecordingOverlay {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
+        // Draggable, so it can live wherever it does not cover your work.
+        // It only appears while dictating, so the short spell of intercepting
+        // clicks costs less than being stuck in one place.
+        panel.ignoresMouseEvents = false
+        panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
         // Follow the user across spaces and over full-screen apps.
         panel.collectionBehavior = [
             .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
         ]
         self.panel = panel
+
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main) { note in
+            guard let moved = note.object as? NSWindow else { return }
+            MainActor.assumeIsolated { Self.savePosition(moved.frame.origin) }
+        }
     }
 
-    /// Bottom-centre of whichever screen has the mouse, clear of the Dock.
+    deinit {
+        if let moveObserver { NotificationCenter.default.removeObserver(moveObserver) }
+    }
+
+    // MARK: - Remembered position
+
+    private static func savePosition(_ origin: NSPoint) {
+        Prefs.defaults.set(["x": origin.x, "y": origin.y], forKey: PrefKey.overlayPosition)
+    }
+
+    static func resetPosition() {
+        Prefs.defaults.removeObject(forKey: PrefKey.overlayPosition)
+    }
+
+    static var hasCustomPosition: Bool {
+        Prefs.defaults.dictionary(forKey: PrefKey.overlayPosition) != nil
+    }
+
+    /// A saved position is only used if it is still on a connected display —
+    /// otherwise unplugging a monitor would hide the pill off-screen with no
+    /// obvious way to get it back.
+    private static func savedPosition(for size: NSSize) -> NSPoint? {
+        guard let d = Prefs.defaults.dictionary(forKey: PrefKey.overlayPosition),
+              let x = d["x"] as? Double, let y = d["y"] as? Double else { return nil }
+        let rect = NSRect(x: x, y: y, width: size.width, height: size.height)
+        let visible = NSScreen.screens.contains { $0.visibleFrame.intersects(rect) }
+        return visible ? NSPoint(x: x, y: y) : nil
+    }
+
+    /// Wherever the user last dragged it, else bottom-centre of whichever
+    /// screen has the mouse, clear of the Dock.
     private func position(_ panel: NSPanel) {
+        if let saved = Self.savedPosition(for: panel.frame.size) {
+            panel.setFrameOrigin(saved)
+            return
+        }
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
             ?? NSScreen.main

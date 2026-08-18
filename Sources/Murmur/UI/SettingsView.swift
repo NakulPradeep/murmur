@@ -27,6 +27,8 @@ private struct GeneralSettings: View {
     @State private var captureMonitor: Any?
     @AppStorage(PrefKey.soundFeedback) private var soundFeedback = true
     @AppStorage(PrefKey.showOverlay) private var showOverlay = true
+    @AppStorage(PrefKey.launchAtLogin) private var launchAtLogin = false
+    @State private var loginItemError: String?
 
     var body: some View {
         Form {
@@ -60,6 +62,29 @@ private struct GeneralSettings: View {
             Section("Feedback") {
                 Toggle("Play sounds", isOn: $soundFeedback)
                 Toggle("Show a floating indicator while recording", isOn: $showOverlay)
+                if showOverlay {
+                    HStack {
+                        Text("Drag the indicator anywhere; it stays where you put it.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Reset position") {
+                            RecordingOverlay.resetPosition()
+                        }
+                        .disabled(!RecordingOverlay.hasCustomPosition)
+                    }
+                }
+            }
+            Section("Startup") {
+                Toggle("Start Murmur when I log in", isOn: $launchAtLogin)
+                    .disabled(!LoginItem.isSupported)
+                    .onChange(of: launchAtLogin) {
+                        loginItemError = LoginItem.setEnabled(launchAtLogin)
+                        if loginItemError != nil { launchAtLogin = LoginItem.isEnabled }
+                    }
+                if let loginItemError {
+                    Text(loginItemError).font(.callout).foregroundStyle(.orange)
+                }
             }
             Section("Privacy") {
                 Text("Everything runs on this Mac. Your voice is never uploaded anywhere.")
