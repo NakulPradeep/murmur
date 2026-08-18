@@ -5,6 +5,15 @@ where **your voice never leaves your Mac**.
 
 Hold a key, speak, release: your words appear in whatever app you're typing in.
 
+- **Open source** — MIT licensed. Read it, fork it, ship it.
+- **No sign-up** — no account, no email, no licence key. Download and talk.
+- **Offline** — works on a plane. The only network request Murmur ever makes is
+  downloading a speech model, once, because you asked it to.
+- **Completely free** — not a trial, not a freemium tier, not "free for 2,000
+  words a week".
+- **Support is optional** — if it saves you time and you'd like to chip in,
+  there's a link at the bottom. Nothing is gated behind it, ever.
+
 ## Why Murmur
 
 | | Murmur | Wispr Flow |
@@ -96,6 +105,21 @@ drifts — your words are never lost to it.
 If Murmur is listed under Accessibility but still can't type, remove it with the
 − button and add it back; macOS drops the grant when an app is rebuilt.
 
+## Installing
+
+Download `Murmur.app`, drag it to Applications, and launch it.
+
+**The first launch needs one extra step.** Murmur isn't notarized by Apple yet,
+so macOS will say it "cannot verify this app is free of malware". That warning
+appears for every app not signed up to Apple's $99/year developer programme —
+it is not a statement about this app in particular. To open it anyway:
+
+> **right-click** Murmur.app → **Open** → **Open**
+
+You only do this once. If you'd rather not, build it yourself from source with
+the instructions below — which is the better answer for a privacy tool anyway,
+since then you know exactly what you are running.
+
 ## Building
 
 ```bash
@@ -114,7 +138,7 @@ cmake --build build -j 8
 ## Command line
 
 ```bash
-.build/release/Murmur --selftest                    # 49 formatter/phonetic/vocabulary cases
+.build/release/Murmur --selftest                    # 65 formatter/phonetic/vocabulary/script cases
 .build/release/Murmur --bench audio.wav             # time every installed model
 .build/release/Murmur --transcribe audio.wav \
     --model parakeet --vocab "Kiran,Xcode,Claude Code"
@@ -135,6 +159,24 @@ key press ─► AudioRecorder ─► EngineRouter ─► RefinementPipeline ─
 - `Refine/` — phonetic matcher, deterministic formatter, number engine, and the
   optional on-device polish.
 - `Input/` — the event tap and the insertion strategies.
+
+## Supporting Murmur
+
+Murmur is free and always will be. Nothing is held back, there is no paid tier,
+and there never will be one — the whole argument for this app is that it costs
+nothing and keeps nothing.
+
+If it genuinely saves you time and you'd like to support the work, there's a
+sponsor link on the GitHub page. It's a tip jar, not a paywall.
+
+The most useful support isn't money, though: tell someone it exists, open an
+issue when it gets a word wrong, or send a pull request. A dictation app gets
+better mostly by being used in places its author never thought of.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Use it, change it, ship it in your own product.
+The only condition is keeping the copyright line.
 
 ### Two things measurement changed
 

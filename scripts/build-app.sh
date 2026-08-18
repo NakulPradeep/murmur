@@ -10,6 +10,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Murmur "$APP/Contents/MacOS/Murmur"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/Murmur.icns "$APP/Contents/Resources/Murmur.icns"
+printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # Sign with a stable identity so the Accessibility/Microphone grants survive
 # rebuilds. Ad-hoc signatures ("-") change every build, which makes macOS

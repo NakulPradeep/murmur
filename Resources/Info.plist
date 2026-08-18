@@ -6,6 +6,8 @@
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>Murmur</string>
+	<key>CFBundleIconFile</key>
+	<string>Murmur</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.murmur.dictation</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -24,6 +26,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Kiran Jain. MIT licensed.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
