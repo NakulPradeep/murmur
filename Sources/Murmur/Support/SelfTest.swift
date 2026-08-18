@@ -175,7 +175,13 @@ enum SelfTest {
         // A borrowed word or a short reply is not evidence of misdetection.
         scriptCheck("The word \u{43C}\u{438}\u{440} means peace", "en", false,
                     "a quoted foreign word is tolerated")
-        scriptCheck("\u{41E}\u{41A}", "en", false, "too short to judge")
+        // The reported recurrence: a single short word, wholly in another
+        // script. Must be caught however short it is.
+        scriptCheck("\u{424}\u{43B}\u{438}.", "en", true,
+                    "short all-Cyrillic word is caught (\"free\" -> \"Фли\")")
+        scriptCheck("\u{41E}\u{41A}", "en", true, "two Cyrillic letters are caught")
+        scriptCheck("OK", "en", false, "short Latin passes")
+        scriptCheck("Hi", "ru", true, "short Latin caught when Russian is pinned")
 
         print("\n\(checks - failures)/\(checks) passed")
         print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")

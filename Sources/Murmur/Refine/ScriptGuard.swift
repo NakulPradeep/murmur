@@ -74,7 +74,17 @@ enum ScriptGuard {
             if s == expected { matching += 1 } else { mismatching += 1 }
         }
         let total = matching + mismatching
-        // Too little text to judge — a two-letter reply is not evidence.
+        guard total > 0 else { return false }
+
+        // Text written entirely in another script is a misdetection at any
+        // length. This case is the whole reason the guard exists: "free" came
+        // back as "Фли", and an earlier version refused to judge anything under
+        // six letters — silently standing down on exactly the short utterances
+        // where the recognizer's language ID is least reliable.
+        if matching == 0 { return true }
+
+        // With some of the expected script present, require a clear majority
+        // before overriding, so a quoted foreign word survives.
         guard total >= 6 else { return false }
         return Double(mismatching) / Double(total) > 0.5
     }
