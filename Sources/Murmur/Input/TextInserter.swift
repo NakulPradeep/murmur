@@ -4,16 +4,14 @@ import Carbon.HIToolbox
 
 /// Puts transcribed text into whatever app is frontmost.
 ///
-/// Three strategies, tried in order of how cleanly they behave:
+/// Delivery is clipboard + synthetic ⌘V, with the previous clipboard restored
+/// afterwards unless something else claimed it meanwhile. When text cannot be
+/// delivered at all — no Accessibility permission, or secure input is active —
+/// it is left on the clipboard and the user is told why.
 ///
-/// 1. **Accessibility** — set the focused element's selected text directly.
-///    Nothing touches the clipboard and nothing synthesizes keystrokes, so
-///    there is no race and no visible paste. Many apps decline it.
-/// 2. **Clipboard + ⌘V** — the universal fallback. The clipboard is restored
-///    afterwards, but only if nothing else claimed it in the meantime.
-/// 3. **Clipboard only** — when text cannot be delivered (no Accessibility
-///    permission, or secure input is active), leave it on the clipboard and
-///    tell the user.
+/// Writing the focused element's text directly through the accessibility API
+/// was tried and removed: it reported success while inserting nothing, and that
+/// failure is invisible to both the app and the user.
 enum TextInserter {
 
     enum Outcome {
@@ -52,101 +50,25 @@ enum TextInserter {
                 reason: "another app has secure input active, so text cannot be typed")
         }
 
-        if insertViaAccessibility(text) {
-            Log.log("inserted via accessibility API")
-            return .inserted
-        }
-
+        // Paste, always.
+        //
+        // The accessibility path looks strictly better on paper — no clipboard
+        // involvement, no synthetic keystroke — but it cannot be trusted to
+        // tell the truth. AXUIElementSetAttributeValue returned .success while
+        // inserting nothing at all in real use, and there is no reliable way to
+        // detect that from the return value: a read-back can be equally stale.
+        // A silent no-op is the worst possible failure for this app, so the
+        // universally supported path wins even though it is less elegant.
         pasteViaClipboard(text)
-        Log.log("inserted via clipboard paste")
+        Log.log("pasted \(text.count) chars into \(frontmostAppName())")
         return .inserted
     }
 
-    // MARK: - Strategy 1: Accessibility
-
-    /// Replaces the focused element's selection (or inserts at the caret) with
-    /// `text`. Returns false when the focused element does not support it,
-    /// which is common in Electron apps and terminals.
-    private static func insertViaAccessibility(_ text: String) -> Bool {
-        let system = AXUIElementCreateSystemWide()
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-            let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
-        else { return false }
-
-        let target = element as! AXUIElement
-
-        // Only text-bearing roles: setting selected text on, say, a button does
-        // nothing useful and can confuse the app.
-        var roleValue: CFTypeRef?
-        AXUIElementCopyAttributeValue(target, kAXRoleAttribute as CFString, &roleValue)
-        let role = (roleValue as? String) ?? ""
-        let textRoles: Set<String> = [
-            kAXTextFieldRole as String, kAXTextAreaRole as String,
-            kAXComboBoxRole as String, "AXSearchField",
-        ]
-        guard textRoles.contains(role) else { return false }
-
-        // Refuse web content, even though it advertises itself as writable.
-        //
-        // Chromium reports kAXSelectedText as settable for ordinary web text
-        // fields, but writing it goes around the DOM's input pipeline: the
-        // editor's model never sees the change, so React, Slack, Notion,
-        // CodeMirror and Monaco either drop the text on the next render or
-        // duplicate it. That covers most apps people dictate into, and the
-        // failure is silent, so anything under a web area gets pasted instead.
-        guard !isInsideWebContent(target) else { return false }
-
-        // Never type into a password field, even if we somehow have focus.
-        var subroleValue: CFTypeRef?
-        AXUIElementCopyAttributeValue(target, kAXSubroleAttribute as CFString, &subroleValue)
-        if (subroleValue as? String) == (kAXSecureTextFieldSubrole as String) { return false }
-
-        // The element must actually be editable and support selected-text writes.
-        var settable: DarwinBoolean = false
-        guard AXUIElementIsAttributeSettable(
-            target, kAXSelectedTextAttribute as CFString, &settable) == .success,
-            settable.boolValue
-        else { return false }
-
-        let status = AXUIElementSetAttributeValue(
-            target, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
-        return status == .success
+    private static func frontmostAppName() -> String {
+        NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown app"
     }
 
-    /// Walks up the accessibility tree looking for a web area, which marks the
-    /// element as browser-rendered rather than a native AppKit control.
-    /// Bounded because some hierarchies are deep and this runs in the hot path.
-    private static func isInsideWebContent(_ element: AXUIElement) -> Bool {
-        var current = element
-        for _ in 0..<12 {
-            var roleValue: CFTypeRef?
-            if AXUIElementCopyAttributeValue(
-                current, kAXRoleAttribute as CFString, &roleValue) == .success,
-               let role = roleValue as? String,
-               role == "AXWebArea" || role == "AXScrollArea" && isWebScrollArea(current) {
-                return role == "AXWebArea"
-            }
-
-            var parentValue: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(
-                current, kAXParentAttribute as CFString, &parentValue) == .success,
-                let parent = parentValue, CFGetTypeID(parent) == AXUIElementGetTypeID()
-            else { return false }
-            current = parent as! AXUIElement
-        }
-        return false
-    }
-
-    private static func isWebScrollArea(_ element: AXUIElement) -> Bool {
-        var description: CFTypeRef?
-        AXUIElementCopyAttributeValue(
-            element, kAXRoleDescriptionAttribute as CFString, &description)
-        return (description as? String)?.localizedCaseInsensitiveContains("html") ?? false
-    }
-
-    // MARK: - Strategy 2: clipboard + paste
+    // MARK: - Paste
 
     private static func pasteViaClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
