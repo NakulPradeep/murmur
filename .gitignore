@@ -11,3 +11,5 @@ vendor/whisper.cpp/build/
 Resources/Murmur.iconset/
 Resources/icon-preview.png
 marketing/render.py
+marketing/remotion/node_modules/
+marketing/remotion/out/

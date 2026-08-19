@@ -1,0 +1,21 @@
+{
+  "name": "murmur-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Motion graphics for Murmur. npm start opens the live preview.",
+  "scripts": {
+    "start": "remotion studio",
+    "render": "remotion render Comparison out/comparison.mp4",
+    "render-short": "remotion render Comparison out/comparison.mp4 --codec=h264 --crf=17"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "remotion": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}
