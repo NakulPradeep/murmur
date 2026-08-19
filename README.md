@@ -125,7 +125,7 @@ since then you know exactly what you are running.
 Requires the Xcode command-line tools and CMake (`brew install cmake`).
 
 ```bash
-git clone --recurse-submodules https://github.com/YOURNAME/murmur.git
+git clone --recurse-submodules https://github.com/NakulPradeep/murmur.git
 cd murmur
 ./scripts/setup.sh
 ```
