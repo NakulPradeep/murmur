@@ -1,5 +1,7 @@
 import { Composition } from "remotion";
-import { Comparison } from "./Comparison";
+import { Comparison, TOTAL_SECONDS } from "./Comparison";
+
+const FPS = 30;
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -7,8 +9,8 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="Comparison"
         component={Comparison}
-        durationInFrames={22 * 30}
-        fps={30}
+        durationInFrames={Math.round(TOTAL_SECONDS * FPS)}
+        fps={FPS}
         width={1080}
         height={1920}
       />

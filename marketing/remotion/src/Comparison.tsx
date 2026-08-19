@@ -10,6 +10,29 @@ import { theme, MEASURED } from "./theme";
 import { EnginePanel } from "./EnginePanel";
 import { Waveform } from "./Waveform";
 
+/**
+ * Timeline, in seconds. Everything downstream is derived from these, so the
+ * film is exactly as long as it has something to say — the first cut ran 22 s
+ * for 8 s of content and held one still frame for the last thirteen.
+ */
+export const BEATS = {
+  title: 0.2,
+  subtitle: 0.65,
+  parakeetIn: 1.6,
+  whisperIn: 1.9,
+  raceStart: 2.6,
+  verdictGap: 0.75, // after the slower engine finally lands
+  lockupGap: 0.75, // after the verdict line
+  taglineGap: 1.35, // after the verdict line
+  readHold: 2.6, // time to actually read the sign-off
+  fadeOut: 0.8,
+};
+
+const raceEnd = BEATS.raceStart + MEASURED.whisper.decode;
+const verdictAtSec = raceEnd + BEATS.verdictGap;
+const signOffDone = verdictAtSec + BEATS.taglineGap;
+export const TOTAL_SECONDS = signOffDone + BEATS.readHold + BEATS.fadeOut;
+
 const FadeIn: React.FC<{
   at: number;
   children: React.ReactNode;
@@ -35,15 +58,18 @@ const FadeIn: React.FC<{
 export const Comparison: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const s = (sec: number) => Math.round(sec * fps);
 
   // Both engines start together; the clock is the whole story.
-  const raceStart = Math.round(2.6 * fps);
-  const verdictAt = Math.round((2.6 + MEASURED.whisper.decode + 0.9) * fps);
+  const raceStart = s(BEATS.raceStart);
+  const verdictAt = s(verdictAtSec);
 
-  const fadeOut = interpolate(frame, [21.2 * fps, 22 * fps], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const fadeOut = interpolate(
+    frame,
+    [s(TOTAL_SECONDS - BEATS.fadeOut), s(TOTAL_SECONDS)],
+    [1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 
   return (
     <AbsoluteFill style={{ background: theme.bg, opacity: fadeOut }}>
@@ -65,7 +91,7 @@ export const Comparison: React.FC = () => {
       >
         {/* Setup */}
         <div style={{ textAlign: "center" }}>
-          <FadeIn at={6}>
+          <FadeIn at={s(BEATS.title)}>
             <div
               style={{
                 fontFamily: theme.sans,
@@ -78,7 +104,7 @@ export const Comparison: React.FC = () => {
               Same {MEASURED.clipSeconds}s of speech.
             </div>
           </FadeIn>
-          <FadeIn at={20}>
+          <FadeIn at={s(BEATS.subtitle)}>
             <div
               style={{
                 fontFamily: theme.sans,
@@ -94,7 +120,7 @@ export const Comparison: React.FC = () => {
 
         {/* The race */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 30 }}>
-          <Sequence from={Math.round(1.6 * fps)} layout="none">
+          <Sequence from={s(BEATS.parakeetIn)} layout="none">
             <FadeIn at={0} fill>
               <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
                 <EnginePanel
@@ -102,7 +128,7 @@ export const Comparison: React.FC = () => {
                   sublabel={MEASURED.parakeet.size}
                   decodeSeconds={MEASURED.parakeet.decode}
                   transcript={MEASURED.transcript}
-                  startFrame={raceStart - Math.round(1.6 * fps)}
+                  startFrame={raceStart - s(BEATS.parakeetIn)}
                   accent={theme.green}
                   winner
                 />
@@ -110,7 +136,7 @@ export const Comparison: React.FC = () => {
             </FadeIn>
           </Sequence>
 
-          <Sequence from={Math.round(1.9 * fps)} layout="none">
+          <Sequence from={s(BEATS.whisperIn)} layout="none">
             <FadeIn at={0} fill>
               <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
                 <EnginePanel
@@ -118,7 +144,7 @@ export const Comparison: React.FC = () => {
                   sublabel={MEASURED.whisper.size}
                   decodeSeconds={MEASURED.whisper.decode}
                   transcript={MEASURED.transcript}
-                  startFrame={raceStart - Math.round(1.9 * fps)}
+                  startFrame={raceStart - s(BEATS.whisperIn)}
                   accent={theme.warm}
                 />
               </div>
@@ -126,7 +152,8 @@ export const Comparison: React.FC = () => {
           </Sequence>
         </div>
 
-        {/* Verdict */}
+        {/* Verdict — staggered, so the sign-off arrives as three beats
+            rather than one block that then sits there. */}
         <Sequence from={verdictAt} layout="none">
           <div style={{ textAlign: "center" }}>
             <FadeIn at={0}>
@@ -141,7 +168,8 @@ export const Comparison: React.FC = () => {
                 Identical words. One tenth the wait.
               </div>
             </FadeIn>
-            <FadeIn at={14}>
+
+            <FadeIn at={s(BEATS.lockupGap)}>
               <div
                 style={{
                   display: "flex",
@@ -162,17 +190,22 @@ export const Comparison: React.FC = () => {
                 >
                   Murmur
                 </div>
-                <Waveform width={220} height={30} />
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 27,
-                    color: theme.green,
-                    letterSpacing: 3,
-                  }}
-                >
-                  FREE · NO SIGN-IN · OPEN SOURCE
-                </div>
+                {/* Live, so the end card keeps a pulse while it is held. */}
+                <Waveform width={300} height={40} active />
+              </div>
+            </FadeIn>
+
+            <FadeIn at={s(BEATS.taglineGap)}>
+              <div
+                style={{
+                  fontFamily: theme.mono,
+                  fontSize: 27,
+                  color: theme.green,
+                  letterSpacing: 3,
+                  marginTop: 18,
+                }}
+              >
+                FREE · NO SIGN-IN · OPEN SOURCE
               </div>
             </FadeIn>
           </div>
