@@ -1,7 +1,6 @@
 # Murmur — motion graphics
 
-Remotion project for Murmur's videos. Written in React, so a change is a CSS
-edit rather than a coordinate calculation.
+Remotion project for Murmur's videos.
 
 ```bash
 npm install
@@ -11,16 +10,18 @@ npm run render     # -> out/comparison.mp4
 
 ## Compositions
 
-- **Comparison** (22 s, 1080×1920) — Parakeet against Whisper Turbo on the same
-  clip, with the clocks running in real time.
+- **Comparison** (10.7 s, 1080×1920) — Parakeet against Whisper Turbo on the
+  same clip, with the clocks running in real time. The length is derived from
+  the `BEATS` table in `src/Comparison.tsx` rather than hardcoded, so the film
+  stays exactly as long as it has something to say.
 
 ## The numbers are real
 
-Everything in `src/theme.ts` under `MEASURED` came from
-`Murmur --bench` on an M2 over 11.1 s of technical speech. The timers on screen
-run at true speed, so the gap the viewer waits through is the gap that was
-measured. If you re-benchmark on different hardware, update that one object and
-the video follows.
+Everything in `src/theme.ts` under `MEASURED` came from `Murmur --bench` on an
+M2 over 11.1 s of technical speech. The timers on screen run at true speed, so
+the gap the viewer waits through is the gap that was measured. If you
+re-benchmark on different hardware, update that one object and the video
+follows.
 
 ## Notes
 
