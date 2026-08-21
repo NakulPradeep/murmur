@@ -134,11 +134,41 @@ def social():
             font(MONO, 40, 600), GREEN, 6, "mm")
     return img
 
+
+# ------------------------------------------------- murmur banner (2560x1440)
+def banner_murmur(guides=False):
+    """The Murmur card, recomposed for YouTube's banner crop.
+
+    Same design as the social card, but every element sits inside the centred
+    1235x338 safe area so phones do not slice the wordmark in half."""
+    W, H = 2560, 1440
+    SW, SH = 1235, 338
+    img = glow_bg(W, H, 0.5, 30); d = ImageDraw.Draw(img)
+    cx, cy = W // 2, H // 2
+
+    # decorative only; lives outside the safe area
+    wave(d, cx, cy - 330, 44, bars=41, spread=30, col=(30, 62, 51), wbar=5)
+    wave(d, cx, cy + 352, 44, bars=41, spread=30, col=(30, 62, 51), wbar=5)
+
+    d.text((cx, cy - 96), "Murmur", font=font(SF, 132, 300), fill=INK, anchor="mm")
+    d.text((cx, cy - 6), "Offline dictation for macOS",
+           font=font(SF, 52, 400), fill=DIM, anchor="mm")
+    wave(d, cx, cy + 52, 26, bars=27, spread=13, wbar=3)
+    tracked(d, (cx, cy + 116), "FREE · NO SIGN-IN · OPEN SOURCE",
+            font(MONO, 38, 600), GREEN, 6, "mm")
+
+    if guides:
+        d.rectangle([cx - SW//2, cy - SH//2, cx + SW//2, cy + SH//2],
+                    outline=(255, 90, 90), width=4)
+    return img
+
 os.makedirs(OUT, exist_ok=True)
 jobs = [
     ("avatar-monogram.png", avatar_monogram()),
     ("avatar-wave.png",     avatar_wave()),
     ("banner.png",          banner(False)),
+    ("banner-murmur.png",   banner_murmur(False)),
+    ("banner-murmur-guides.png", banner_murmur(True)),
     ("banner-guides.png",   banner(True)),
     ("watermark.png",       watermark()),
     ("github-social.png",   social()),
