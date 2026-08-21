@@ -162,8 +162,27 @@ def banner_murmur(guides=False):
                     outline=(255, 90, 90), width=4)
     return img
 
+
+# --------------------------------------------- avatar from the shipped app icon
+def avatar_appicon():
+    """The app icon, recomposed for a circular crop.
+
+    Loads the real icon generator and neutralises its squircle mask so the
+    artwork runs edge to edge. YouTube crops avatars to a circle, and the
+    squircle's transparent corners would otherwise clip raggedly against it —
+    reusing the generator keeps the mark pixel-identical to the shipped icon
+    instead of a redrawn lookalike that drifts."""
+    import importlib.util
+    path = os.path.join(HERE, "..", "scripts", "make-icon.py")
+    spec = importlib.util.spec_from_file_location("makeicon", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)                     # main() is __main__-guarded
+    mod.squircle = lambda size, radius_ratio=0.2237: Image.new("L", (size, size), 255)
+    return mod.render(1024).convert("RGB").resize((800, 800), Image.LANCZOS)
+
 os.makedirs(OUT, exist_ok=True)
 jobs = [
+    ("avatar-appicon.png",  avatar_appicon()),
     ("avatar-monogram.png", avatar_monogram()),
     ("avatar-wave.png",     avatar_wave()),
     ("banner.png",          banner(False)),
